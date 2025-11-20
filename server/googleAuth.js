@@ -5,7 +5,7 @@ dotenv.config();
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI = "http://localhost:9000/auth/google/callback";
+const REDIRECT_URI = "https://scribly-frontend-j8ps.vercel.app/auth/google/callback";
 
 // Create OAuth2 client
 export const oauth2Client = new google.auth.OAuth2(
