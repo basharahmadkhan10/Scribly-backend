@@ -39,8 +39,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
         }
         const option={
             httpOnly:true,
-            secure:true,
-            sameSite: "None"
+            secure:true
         }
         const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id);
         return res
@@ -63,7 +62,6 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
         throw new ApiError(500, "Something went wrong while refreshing access token");
     }
 })
-
 
 const RegisterUser = asyncHandler(async (req, res, next) => {
   const { name, email, password } = req.body;
@@ -97,7 +95,6 @@ const RegisterUser = asyncHandler(async (req, res, next) => {
   );
 });
 
-
 const loginUser= asyncHandler(async(req,res,next)=>{
     const {email, password}= req.body;
 
@@ -125,8 +122,7 @@ const loginUser= asyncHandler(async(req,res,next)=>{
     const userData = await User.findById(user._id).select("-password -refreshToken");
     const option={
         httpOnly:true,
-        secure:true,
-        sameSite: "None"
+        secure:true
     }
 
     return res
@@ -144,8 +140,6 @@ const loginUser= asyncHandler(async(req,res,next)=>{
     )
 })
 
-
-
 const logoutUser = asyncHandler(async (req, res, next) => {
     await User.findByIdAndUpdate(req.user._id, { 
         $unset:{refreshToken: 1}
@@ -156,8 +150,7 @@ const logoutUser = asyncHandler(async (req, res, next) => {
 )
 const option={
     httpOnly:true,
-    secure:true,
-    sameSite: "None"
+    secure:true
 }
 return res
     .status(200)
