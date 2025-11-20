@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import bodyParser from "body-parser";
 import jwt from "jsonwebtoken";
 import { google } from "googleapis";
-import { oauth2Client, getAuthUrl } from "../googleAuth.js";
+import { oauth2Client, getAuthUrl } from "./googleAuth.js";
 import { User } from "./models/user.models.js";
 
 dotenv.config();
@@ -143,4 +143,5 @@ app.listen(PORT, () => {
 });
 
 export { app };
+
 
