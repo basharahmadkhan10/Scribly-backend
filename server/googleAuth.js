@@ -7,6 +7,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = "https://scribly-backend-new.onrender.com/auth/google/callback";
 
+
 // Create OAuth2 client
 export const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
