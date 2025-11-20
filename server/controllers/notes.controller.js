@@ -1,27 +1,23 @@
 import { Note } from "../models/notes.models.js";
-import { User } from "../models/user.models.js"; // <--- ADDED THIS
+import { User } from "../models/user.models.js";
 import { asyncHandler } from "../utils/Asynchandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { google } from "googleapis";
+import { oauth2Client } from "../googleAuth.js";
 
-// Create Note
+// ----------------------------------------------------
+// CREATE NOTE + SYNC TO GOOGLE CALENDAR
+// ----------------------------------------------------
 const createNote = asyncHandler(async (req, res) => {
-  const {
-    title,
-    content,
-    isPublic = false,
-    startTime,
-    endTime,
-  } = req.body;
-
+  const { title, content, isPublic = false, startTime, endTime } = req.body;
   const userId = req.user._id;
 
   if (!title || !content) {
     throw new ApiError(400, "Title and content are required");
   }
 
-  // Create the note in DB first
+  // Create note in DB
   const note = await Note.create({
     title,
     content,
@@ -31,40 +27,35 @@ const createNote = asyncHandler(async (req, res) => {
     endTime,
   });
 
-  // Fetch full user data (including Google tokens)
+  // Fetch user with Google tokens
   const user = await User.findById(userId);
 
-  // If user connected Google & times exist → sync to calendar
- if (user?.googleAccessToken && user?.googleRefreshToken && startTime && endTime) {
-  try {
-    const auth = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      "https://scribly-backend-new.onrender.com/auth/google/callback"
-    );
+  // If Google not linked OR no date → skip syncing
+  if (!user?.googleAccessToken || !user?.googleRefreshToken || !startTime || !endTime) {
+    console.log("⚠️ Google sync skipped (missing tokens or times)");
+    return res.status(201).json(new ApiResponse(201, { note }, "Note created"));
+  }
 
-    // Load stored tokens
-    auth.setCredentials({
+  try {
+    // Load and refresh tokens automatically
+    oauth2Client.setCredentials({
       access_token: user.googleAccessToken,
-      refresh_token: user.googleRefreshToken
+      refresh_token: user.googleRefreshToken,
     });
 
-    // Refresh access token properly
-    const newToken = await auth.getAccessToken();
+    // Google refreshes the token if expired
+    const newToken = await oauth2Client.getAccessToken();
 
+    // Save refreshed access token
     if (newToken?.token) {
-      auth.setCredentials({
-        access_token: newToken.token,
-        refresh_token: user.googleRefreshToken
-      });
-
       await User.findByIdAndUpdate(userId, {
-        googleAccessToken: newToken.token
+        googleAccessToken: newToken.token,
       });
     }
 
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
 
+    // Create event body
     const event = {
       summary: title,
       description: content,
@@ -78,58 +69,56 @@ const createNote = asyncHandler(async (req, res) => {
       },
     };
 
+    // Insert event
     await calendar.events.insert({
       calendarId: "primary",
       requestBody: event,
     });
 
-    console.log("✅ Event added to Google Calendar successfully!");
+    console.log("✅ Google Calendar event added!");
 
   } catch (error) {
-    console.error("❌ Google Calendar Sync Failed:", error.message);
-  }
-}
- else {
-    console.log("⚠️ Google sync skipped (missing tokens or no start/end time)");
+    console.error("❌ Google Calendar Sync Failed:", error);
   }
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, { note }, "Note created successfully"));
+  return res.status(201).json(new ApiResponse(201, { note }, "Note created successfully"));
 });
 
-// Get All Notes (only user's own notes)
+// ----------------------------------------------------
+// GET MY NOTES
+// ----------------------------------------------------
 const getMyNotes = asyncHandler(async (req, res) => {
   const notes = await Note.find({ user: req.user._id }).sort({ updatedAt: -1 });
   return res.status(200).json(new ApiResponse(200, notes));
 });
 
-// Get Public Notes
+// ----------------------------------------------------
+// GET PUBLIC NOTES
+// ----------------------------------------------------
 const getPublicNotes = asyncHandler(async (req, res) => {
   const notes = await Note.find({ isPublic: true }).sort({ updatedAt: -1 });
   return res.status(200).json(new ApiResponse(200, notes));
 });
 
-// Get Single Note
+// ----------------------------------------------------
+// GET SINGLE NOTE
+// ----------------------------------------------------
 const getNoteById = asyncHandler(async (req, res) => {
   const note = await Note.findOne({ _id: req.params.id, user: req.user._id });
 
-  if (!note) {
-    throw new ApiError(404, "Note not found");
-  }
+  if (!note) throw new ApiError(404, "Note not found");
 
   return res.status(200).json(new ApiResponse(200, note));
 });
 
-// Update Note
+// ----------------------------------------------------
+// UPDATE NOTE
+// ----------------------------------------------------
 const updateNote = asyncHandler(async (req, res) => {
   const { title, content, isPublic } = req.body;
 
   let note = await Note.findOne({ _id: req.params.id, user: req.user._id });
-
-  if (!note) {
-    throw new ApiError(404, "Note not found");
-  }
+  if (!note) throw new ApiError(404, "Note not found");
 
   note.title = title ?? note.title;
   note.content = content ?? note.content;
@@ -144,54 +133,52 @@ const updateNote = asyncHandler(async (req, res) => {
   });
 });
 
-// Delete Note
+// ----------------------------------------------------
+// DELETE NOTE + DELETE EVENT FROM GOOGLE CALENDAR
+// ----------------------------------------------------
 const deleteNote = asyncHandler(async (req, res) => {
   const note = await Note.findOne({ _id: req.params.id, user: req.user._id });
-
-  if (!note) {
-    throw new ApiError(404, "Note not found");
-  }
+  if (!note) throw new ApiError(404, "Note not found");
 
   const user = await User.findById(req.user._id);
 
-
-  if (user?.googleAccessToken && note.startTime) {
+  if (user?.googleAccessToken && user?.googleRefreshToken && note.startTime) {
     try {
-      const auth = new google.auth.OAuth2();
-      auth.setCredentials({ access_token: user.googleAccessToken });
-      const calendar = google.calendar({ version: "v3", auth });
+      oauth2Client.setCredentials({
+        access_token: user.googleAccessToken,
+        refresh_token: user.googleRefreshToken,
+      });
 
+      const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+      // Search for the event to delete
       const searchRes = await calendar.events.list({
         calendarId: "primary",
-        q: note.title, // Look for events with this title
-        timeMin: new Date(note.startTime).toISOString(), // Look starting from this time
+        q: note.title,
+        timeMin: new Date(note.startTime).toISOString(),
         maxResults: 5,
         singleEvents: true,
       });
 
       const eventToDelete = searchRes.data.items.find((event) => {
-        const eventStart = new Date(
-          event.start.dateTime || event.start.date
-        ).getTime();
+        const eventStart = new Date(event.start.dateTime || event.start.date).getTime();
         const noteStart = new Date(note.startTime).getTime();
-        return Math.abs(eventStart - noteStart) < 2000;
+        return Math.abs(eventStart - noteStart) < 2000; // 2 seconds difference allowed
       });
 
- 
       if (eventToDelete) {
         await calendar.events.delete({
           calendarId: "primary",
           eventId: eventToDelete.id,
         });
-        console.log("Found and deleted synced Google Calendar event");
+
+        console.log("🗑️ Deleted Google Calendar event");
       }
     } catch (err) {
-    
-      console.log(
-        "Sync Delete Skipped (Event might not exist or token expired)"
-      );
+      console.log("⚠️ Event delete skipped (token expired or event not found)");
     }
   }
+
   await Note.findByIdAndDelete(req.params.id);
 
   return res.status(200).json(new ApiResponse(200, null, "Note deleted"));
@@ -205,6 +192,3 @@ export {
   updateNote,
   deleteNote,
 };
-
-
-
