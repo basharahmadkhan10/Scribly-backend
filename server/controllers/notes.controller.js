@@ -4,7 +4,7 @@ import { asyncHandler } from "../utils/Asynchandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { google } from "googleapis";
-import { oauth2Client } from "../googleAuth.js";
+import { oauth2Client } from "./googleAuth.js";
 
 // ----------------------------------------------------
 // CREATE NOTE + SYNC TO GOOGLE CALENDAR
@@ -192,3 +192,4 @@ export {
   updateNote,
   deleteNote,
 };
+
