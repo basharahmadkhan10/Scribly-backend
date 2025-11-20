@@ -50,11 +50,18 @@ const createNote = asyncHandler(async (req, res) => {
       const calendar = google.calendar({ version: "v3", auth });
 
       const event = {
-        summary: title,
-        description: content,
-        start: { dateTime: new Date(startTime).toISOString() },
-        end: { dateTime: new Date(endTime).toISOString() },
-      };
+  summary: title,
+  description: content,
+  start: { 
+    dateTime: new Date(startTime).toISOString(),
+    timeZone: "Asia/Kolkata"
+  },
+  end: { 
+    dateTime: new Date(endTime).toISOString(),
+    timeZone: "Asia/Kolkata"
+  },
+};
+
 
       await calendar.events.insert({
         calendarId: "primary",
@@ -185,3 +192,4 @@ export {
   updateNote,
   deleteNote,
 };
+
