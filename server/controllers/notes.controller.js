@@ -13,7 +13,6 @@ const createNote = asyncHandler(async (req, res) => {
     isPublic = false,
     startTime,
     endTime,
-    // googleAccessToken, // <--- REMOVED: We don't trust the body for this
   } = req.body;
 
   const userId = req.user._id;
@@ -22,7 +21,7 @@ const createNote = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Title and content are required");
   }
 
-  // 1. Create the note in your database first
+  // Create the note in DB first
   const note = await Note.create({
     title,
     content,
@@ -32,52 +31,60 @@ const createNote = asyncHandler(async (req, res) => {
     endTime,
   });
 
-  // 2. Fetch the full user to get the stored Google Tokens
+  // Fetch full user data (including Google tokens)
   const user = await User.findById(userId);
 
-  // 3. Check if we have everything needed for Google Calendar
-  // We check user.googleAccessToken (from DB), not req.body
-  if (user && user.googleAccessToken && startTime && endTime) {
+  // If user connected Google & times exist → sync to calendar
+  if (user?.googleAccessToken && user?.googleRefreshToken && startTime && endTime) {
     try {
       const auth = new google.auth.OAuth2();
 
-      // Set credentials using the token from the database
+      // 🔹 Load stored tokens
       auth.setCredentials({
         access_token: user.googleAccessToken,
-        refresh_token: user.googleRefreshToken, // Good practice to include if available
+        refresh_token: user.googleRefreshToken,
+      });
+
+      // 🔥 REFRESH TOKEN AUTOMATICALLY
+      const newTokens = await auth.refreshAccessToken();
+      auth.setCredentials(newTokens.credentials);
+
+      // 🔹 Save refreshed access token in DB
+      await User.findByIdAndUpdate(userId, {
+        googleAccessToken: newTokens.credentials.access_token,
+        googleTokenExpiry: newTokens.credentials.expiry_date,
       });
 
       const calendar = google.calendar({ version: "v3", auth });
 
+      // 🔹 Google Calendar event object
       const event = {
-  summary: title,
-  description: content,
-  start: { 
-    dateTime: new Date(startTime).toISOString(),
-    timeZone: "Asia/Kolkata"
-  },
-  end: { 
-    dateTime: new Date(endTime).toISOString(),
-    timeZone: "Asia/Kolkata"
-  },
-};
+        summary: title,
+        description: content,
+        start: {
+          dateTime: new Date(startTime).toISOString(),
+          timeZone: "Asia/Kolkata",
+        },
+        end: {
+          dateTime: new Date(endTime).toISOString(),
+          timeZone: "Asia/Kolkata",
+        },
+      };
 
-
+      // 🔥 Insert event
       await calendar.events.insert({
         calendarId: "primary",
         requestBody: event,
       });
 
       console.log("✅ Event added to Google Calendar successfully!");
+
     } catch (error) {
-      console.error("❌ Failed to sync with Google Calendar:", error.message);
-      // Note: We do NOT throw an error here, because the Note was already created in DB.
-      // We just log it. If you want the whole request to fail, move this try/catch up.
+      console.error("❌ Google Calendar Sync Failed:", error.message);
+      // DO NOT throw error (note is already saved)
     }
   } else {
-    console.log(
-      "⚠️ Google Sync Skipped. Reason: Missing Token in DB or Missing Start/End Time."
-    );
+    console.log("⚠️ Google sync skipped (missing tokens or no start/end time)");
   }
 
   return res
@@ -192,4 +199,5 @@ export {
   updateNote,
   deleteNote,
 };
+
 
