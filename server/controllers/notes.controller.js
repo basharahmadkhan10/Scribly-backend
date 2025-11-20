@@ -35,55 +35,61 @@ const createNote = asyncHandler(async (req, res) => {
   const user = await User.findById(userId);
 
   // If user connected Google & times exist → sync to calendar
-  if (user?.googleAccessToken && user?.googleRefreshToken && startTime && endTime) {
-    try {
-      const auth = new google.auth.OAuth2();
+ if (user?.googleAccessToken && user?.googleRefreshToken && startTime && endTime) {
+  try {
+    const auth = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      "https://scribly-backend-new.onrender.com/auth/google/callback"
+    );
 
-      // 🔹 Load stored tokens
+    // Load stored tokens
+    auth.setCredentials({
+      access_token: user.googleAccessToken,
+      refresh_token: user.googleRefreshToken
+    });
+
+    // Refresh access token properly
+    const newToken = await auth.getAccessToken();
+
+    if (newToken?.token) {
       auth.setCredentials({
-        access_token: user.googleAccessToken,
-        refresh_token: user.googleRefreshToken,
+        access_token: newToken.token,
+        refresh_token: user.googleRefreshToken
       });
 
-      // 🔥 REFRESH TOKEN AUTOMATICALLY
-      const newTokens = await auth.refreshAccessToken();
-      auth.setCredentials(newTokens.credentials);
-
-      // 🔹 Save refreshed access token in DB
       await User.findByIdAndUpdate(userId, {
-        googleAccessToken: newTokens.credentials.access_token,
-        googleTokenExpiry: newTokens.credentials.expiry_date,
+        googleAccessToken: newToken.token
       });
-
-      const calendar = google.calendar({ version: "v3", auth });
-
-      // 🔹 Google Calendar event object
-      const event = {
-        summary: title,
-        description: content,
-        start: {
-          dateTime: new Date(startTime).toISOString(),
-          timeZone: "Asia/Kolkata",
-        },
-        end: {
-          dateTime: new Date(endTime).toISOString(),
-          timeZone: "Asia/Kolkata",
-        },
-      };
-
-      // 🔥 Insert event
-      await calendar.events.insert({
-        calendarId: "primary",
-        requestBody: event,
-      });
-
-      console.log("✅ Event added to Google Calendar successfully!");
-
-    } catch (error) {
-      console.error("❌ Google Calendar Sync Failed:", error.message);
-      // DO NOT throw error (note is already saved)
     }
-  } else {
+
+    const calendar = google.calendar({ version: "v3", auth });
+
+    const event = {
+      summary: title,
+      description: content,
+      start: {
+        dateTime: new Date(startTime).toISOString(),
+        timeZone: "Asia/Kolkata",
+      },
+      end: {
+        dateTime: new Date(endTime).toISOString(),
+        timeZone: "Asia/Kolkata",
+      },
+    };
+
+    await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: event,
+    });
+
+    console.log("✅ Event added to Google Calendar successfully!");
+
+  } catch (error) {
+    console.error("❌ Google Calendar Sync Failed:", error.message);
+  }
+}
+ else {
     console.log("⚠️ Google sync skipped (missing tokens or no start/end time)");
   }
 
@@ -199,5 +205,6 @@ export {
   updateNote,
   deleteNote,
 };
+
 
 
